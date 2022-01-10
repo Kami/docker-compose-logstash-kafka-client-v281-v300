@@ -1,0 +1,82 @@
+version: '3.9'
+
+services:
+  logstash:
+    build: ./logstash
+    volumes:
+      - "./configs/logstash.conf:/tmp/logstash.conf:ro"
+    restart: always
+    command: logstash -f /tmp/logstash.conf
+    ports:
+      - "9600:9600"
+      - "7777:7777"
+    networks:
+      - private
+    dns_search: .
+
+  kafka:
+    # Confluent platform to Kafka version mapping
+    # 7.0.0 -> Kafka 3.0.x
+    # 6.2.x -> Kafka 2.8.x
+    # 6.0.x -> Kafka 2.6.x
+    image: confluentinc/cp-kafka:6.0.5
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    networks:
+      - private
+    dns_search: .
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_RETENTION_BYTES: "100000000"
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_CREATE_TOPICS: "log:1:1"
+      KAFKA_ADVERISED_HOST_NAME: 192.168.160.192
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      MYID: 1
+      SERVERS: zookeeper
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2183:2181"
+    networks:
+      - private
+    dns_search: .
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.5.1
+    mem_limit: 1g
+    volumes:
+      - "./configs/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro"
+      - "/tmp/apache-logs:/apache-logs"
+    depends_on:
+      - apache
+      - kafka
+    networks:
+      - private
+    dns_search: .
+
+  apache:
+    image: lzrbear/docker-apache2-ubuntu
+    volumes:
+      - "/tmp/apache-logs:/var/log/apache2"
+    ports:
+      - "8888:80"
+    networks:
+      - private
+    dns_search: .
+    depends_on:
+      - logstash
+
+networks:
+  private:
+    driver: bridge
